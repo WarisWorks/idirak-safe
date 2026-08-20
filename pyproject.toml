@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "idirak-safe"
+version = "0.1.0a0"
+description = "Pre-alpha local transcript validation and export utilities for Idirak Safe"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "Waris Ruzi" },
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+
+[project.urls]
+Homepage = "https://github.com/WarisWorks/idirak-safe"
+Repository = "https://github.com/WarisWorks/idirak-safe"
+Issues = "https://github.com/WarisWorks/idirak-safe/issues"
+
+[project.scripts]
+idirak-safe = "idirak_safe.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

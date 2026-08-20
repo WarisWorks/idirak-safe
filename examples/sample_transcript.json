@@ -1,0 +1,17 @@
+{
+  "language": "ug",
+  "source": "synthetic example; not a user recording",
+  "segments": [
+    {
+      "start": 0.0,
+      "end": 1.5,
+      "text": "ياخشىمۇسىز."
+    },
+    {
+      "start": 1.5,
+      "end": 3.25,
+      "text": "ياخشى، رەھمەت.",
+      "speaker": "Speaker 2"
+    }
+  ]
+}
