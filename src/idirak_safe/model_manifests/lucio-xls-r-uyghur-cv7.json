@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "model_id": "lucio/xls-r-uyghur-cv7",
+  "revision": "49339b194c6763d37414026456f7de09dd3f7554",
+  "model_license": "Apache-2.0",
+  "training_data": "Mozilla Common Voice 7.0 Uyghur",
+  "training_data_license": "CC0-1.0",
+  "files": [
+    {
+      "path": "added_tokens.json",
+      "size": 23,
+      "sha256": "158445abbe767bf77dec049150aa4b3e6e3aeb407fa4209e57924e04f4f2e349"
+    },
+    {
+      "path": "config.json",
+      "size": 2035,
+      "sha256": "a3e5189dbc6617a6b9808b5cf27aca6650ca5c4e2517599f835159ecce49b187"
+    },
+    {
+      "path": "model.safetensors",
+      "size": 1261963232,
+      "sha256": "aa923e217495329501fbea56cd3a8f695521a726525cb0c37ca143b1c262e2c6"
+    },
+    {
+      "path": "preprocessor_config.json",
+      "size": 212,
+      "sha256": "a2254a5b58f72cd4de3632f8eee64f3f098b7c1402128d2f419e7d00ae13e335"
+    },
+    {
+      "path": "special_tokens_map.json",
+      "size": 309,
+      "sha256": "fe9499f3f127cf340419ded12d4175b3a28a58c99c949bf3f8343a6f6b9fa872"
+    },
+    {
+      "path": "tokenizer_config.json",
+      "size": 276,
+      "sha256": "398b092d083c73f5d3e09c5bc549ee69b134eef0a9e7f953a09a653dbb7a06f9"
+    },
+    {
+      "path": "vocab.json",
+      "size": 355,
+      "sha256": "8e3368a287d8ab2ea737604d26004f36e994304b76d1353d2807ef9944b7c6e9"
+    }
+  ]
+}

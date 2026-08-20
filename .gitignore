@@ -28,3 +28,4 @@ dist/
 *.safetensors
 *.ggml
 *.gguf
+/models/

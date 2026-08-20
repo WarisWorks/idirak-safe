@@ -3,4 +3,4 @@
 from .model import Segment, Transcript, TranscriptValidationError
 
 __all__ = ["Segment", "Transcript", "TranscriptValidationError"]
-__version__ = "0.1.0a0"
+__version__ = "0.2.0a0"
