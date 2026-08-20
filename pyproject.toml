@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "idirak-safe"
-version = "0.1.0a0"
-description = "Pre-alpha local transcript validation and export utilities for Idirak Safe"
+version = "0.2.0a0"
+description = "Pre-alpha local-first Uyghur transcription and export tools"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -28,8 +28,19 @@ Issues = "https://github.com/WarisWorks/idirak-safe/issues"
 [project.scripts]
 idirak-safe = "idirak_safe.cli:main"
 
+[project.optional-dependencies]
+asr = [
+  "numpy>=1.26,<3",
+  "safetensors>=0.4,<1",
+  "torch>=2.2,<3",
+  "transformers>=4.46,<6",
+]
+
 [tool.setuptools]
 package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"idirak_safe.model_manifests" = ["*.json"]

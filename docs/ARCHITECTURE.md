@@ -2,155 +2,232 @@
 
 ## Document status
 
-This document separates the **implemented pre-alpha scaffold** from the **planned local transcription pipeline**. It is a design description, not a claim that audio transcription is already available.
+This document describes the implementation in Idirak Safe `0.2.0a0`. The release contains an experimental local Wav2Vec2/XLS-R CTC path, not merely an interface scaffold. The path is intentionally narrow and is **not approved for sensitive use**.
 
 ## Security objective
 
-Idirak Safe is intended to let a user create and export a Uyghur transcript on a device they control, without sending source media or transcript content to a hosted service. The core invariant is:
+Idirak Safe is intended to create and export a Uyghur draft transcript on a device controlled by the user without sending audio or transcript content to a hosted service. The core invariant is:
 
-> A missing, broken, or unsupported local component causes an explicit failure. It must never trigger a silent network fallback.
+> A missing, changed, broken, or unsupported local component causes an explicit failure. It never triggers a remote API or silent network fallback.
 
-Local execution narrows the data path but does not secure a compromised device, encrypt a disk, anonymize a user, guarantee secure deletion, or make inaccurate transcripts trustworthy.
+Local execution narrows the data path. It does not secure a compromised device, encrypt a disk, anonymize a user, guarantee secure deletion, prove model provenance, or make an inaccurate transcript trustworthy.
 
-## Data flow
+## Two separate workflows
+
+Model acquisition and transcription are deliberately separate.
+
+### Explicit setup workflow
 
 ```text
-User-selected media
-        |
-        v
-[1. Local import and validation]          planned
-        |
-        v
-[2. Explicit local ASR backend]           planned; no backend bundled yet
-        |
-        v
-[3. Canonical transcript document]        schema and validation implemented
-        |
-        v
-[4. Local TXT / SRT / VTT / JSON export]  implemented
-        |
-        v
-User-selected output path
+User invokes external `hf download`
+              |
+              v
+Hugging Face model repository
+lucio/xls-r-uyghur-cv7
+exact revision 49339b194c6763d37414026456f7de09dd3f7554
+              |
+              v
+Seven requested files in a user-selected local model directory
+              |
+              v
+`idirak-safe verify-model --model-dir ...`
+size + SHA-256 verification against the packaged manifest
 ```
 
-There is no server-side processing stage in this design. Downloading installation dependencies or a model is a separate setup action that must be explicit and documented; transcription itself must not require a network connection.
+This is a user-initiated network event outside the Idirak Safe transcription command. The request can be visible to the network, Hugging Face, shell history, and local cache metadata. The model weights are not bundled with this repository or Python package.
 
-## Current implementation
+The built-in manifest supports only [`lucio/xls-r-uyghur-cv7`](https://huggingface.co/lucio/xls-r-uyghur-cv7) at the full revision above. It lists these seven files:
 
-The initial Python scaffold provides:
+1. `added_tokens.json`
+2. `config.json`
+3. `model.safetensors`
+4. `preprocessor_config.json`
+5. `special_tokens_map.json`
+6. `tokenizer_config.json`
+7. `vocab.json`
 
-- `idirak-safe doctor`, which reports that the project is pre-alpha, local-only, and has no ASR backend;
-- parsing and validation for an existing local transcript JSON document;
-- deterministic export to TXT, SRT, VTT, and normalized JSON; and
-- unit tests for implemented behavior.
+The weight file is exactly 1,261,963,232 bytes with SHA-256 `aa923e217495329501fbea56cd3a8f695521a726525cb0c37ca143b1c262e2c6`. The packaged [manifest](../src/idirak_safe/model_manifests/lucio-xls-r-uyghur-cv7.json) records the sizes and SHA-256 hashes for all seven files.
 
-It does not currently import audio, decode media, run inference, or generate a transcript. A transcription request must fail clearly while no backend is implemented.
+The verifier requires every listed file to be a regular file with the expected byte size and digest. The model directory itself may not be a symbolic link; top-level symbolic links and files with executable, library, Python, pickle, PyTorch-pickle, or similar unsafe suffixes are rejected.
 
-## Planned components
+Verification proves only that the required local bytes match the packaged manifest. It does not prove accuracy, absence of malicious learned behavior, ethical data collection, licence sufficiency, or safety. Extra non-symlink directories and file types not on the unsafe list are not a complete sandbox and remain part of the local trust boundary.
 
-### 1. Local importer
+### Offline transcription workflow
 
-The importer will receive a path explicitly selected by the user. Its responsibilities are expected to include:
+```text
+CLI arguments
+    |
+    +--> reject identical audio/output paths
+    |
+    +--> verify local model before opening audio
+              |
+              v
+regular, non-symlinked local WAV
+              |
+              v
+strict WAV validation
+mono | 16,000 Hz | signed PCM16 | <= 30 s | <= 2 MiB
+              |
+              v
+PCM samples normalized in memory
+              |
+              v
+CPU-only Hugging Face Wav2Vec2 CTC adapter
+local files only | Safetensors | remote code disabled
+              |
+              v
+model logits -> argmax -> local CTC processor decode
+              |
+              v
+one in-memory `ug` draft transcript segment
+0.0 seconds -> full audio duration
+              |
+              v
+TXT / SRT / VTT / JSON renderer
+              |
+              v
+atomic write to the user-selected local output path
+```
 
-- rejecting unsupported or malformed inputs with a clear error;
-- extracting only the audio stream and metadata necessary for transcription;
-- bounding input size, duration, decoding time, and temporary storage where practical;
-- avoiding content-bearing logs; and
-- keeping temporary work inside a documented, user-controlled or securely permissioned location.
+No URL input, cloud storage discovery, server-side processing, hosted inference, or remote fallback exists in this path.
 
-Media parsers and codecs expand the attack surface. Their versions and provenance must be documented, and malformed-file behavior must be tested. Automatic upload, URL import, cloud storage discovery, and background indexing are outside the core design.
+## Components
 
-### 2. Local ASR backend boundary
+### CLI boundary
 
-The CLI will require an explicitly configured local backend. The backend adapter should accept decoded local audio plus explicit options and return timestamped segments. It must not accept a remote API as an automatic substitute.
+The `transcribe` command requires all consequential choices to be explicit:
 
-Expected failure behavior:
+- local audio path;
+- `--backend hf-wav2vec2`;
+- local `--model-dir`;
+- output format; and
+- local output path.
 
-- no backend installed: explain how to install or configure a supported local option, then exit non-zero;
-- no compatible model present: name the missing local requirement, then exit non-zero;
-- backend crash or resource exhaustion: preserve the original media, avoid a misleading partial-success status, then exit non-zero; and
-- network unavailable: local inference continues normally; if it cannot, that backend is not acceptable for the local-only release profile.
+Only `hf-wav2vec2` is allowlisted. Dynamic plugins and arbitrary backend identifiers are not supported. The audio and output paths must differ even when `--force` is supplied.
 
-A supported backend must have documented source, licence, version, model provenance, hardware requirements, offline behavior, and known accuracy limitations. Model files should be identified using stable versions and checksums where distribution permits.
+### Model verifier
 
-### 3. Canonical transcript document
+`HFWav2Vec2Backend` verifies the selected model directory during construction, before the audio file is opened. The embedded manifest records:
 
-The internal handoff between ASR and exporters is a small JSON-compatible document. Its minimum shape is:
+- model ID;
+- immutable revision;
+- declared model and training-data licences;
+- exact required filenames and byte sizes; and
+- SHA-256 for every required file.
+
+The runtime never loads the upstream `pytorch_model.bin`, `training_args.bin`, `eval.py`, or another Python or pickle-based artifact. `model.safetensors` is the only model weight artifact in the manifest.
+
+### Audio boundary
+
+The importer uses Python's standard-library WAV reader. It accepts only a regular, non-symlinked file that is:
+
+- uncompressed WAV;
+- one channel;
+- exactly 16,000 Hz;
+- signed 16-bit PCM;
+- non-empty;
+- at most 480,000 frames, or 30 seconds; and
+- at most 2 MiB on disk.
+
+It opens the path with `O_NOFOLLOW` where the operating system provides that flag, checks the opened file descriptor again, and rejects truncated PCM data. It performs no codec decoding, resampling, metadata extraction, or temporary-file conversion.
+
+### Offline ASR adapter
+
+Before importing Hugging Face libraries, the adapter sets:
+
+```text
+DO_NOT_TRACK=1
+HF_DATASETS_OFFLINE=1
+HF_HUB_DISABLE_PROGRESS_BARS=1
+HF_HUB_DISABLE_TELEMETRY=1
+HF_HUB_OFFLINE=1
+TRANSFORMERS_OFFLINE=1
+```
+
+If `huggingface_hub` or `transformers` was already imported in the process without `HF_HUB_OFFLINE=1`, the backend refuses to continue and asks for a fresh process. The processor and model are loaded from the verified local directory with `local_files_only=True` and `trust_remote_code=False`; the model additionally requires `use_safetensors=True`. The model is moved to CPU and inference runs under PyTorch inference mode.
+
+The adapter sends the normalized sample array to `AutoModelForCTC`, selects the highest-logit token at every time step with `torch.argmax`, and decodes the token IDs with the local processor. There is no language prompt, external language model, remote decoder, or punctuation restoration stage.
+
+These controls mean the supported transcription path does not download a model or call a remote inference API. They are not a general operating-system network sandbox.
+
+### Canonical transcript and exporters
+
+The ASR adapter returns one `Transcript` object in memory:
 
 ```json
 {
   "language": "ug",
-  "source": "interview-01.wav",
   "segments": [
     {
       "start": 0.0,
-      "end": 2.4,
-      "text": "سالام دۇنيا",
-      "speaker": "optional-user-label"
+      "end": 12.3,
+      "text": "generated draft text"
     }
   ]
 }
 ```
 
-`language` defaults to `ug`. `source` and `speaker` are optional. `segments` must be non-empty, timestamps must be valid and ordered, and `text` must be present. Future schema changes should be versioned before they would make older documents ambiguous.
+The generated transcript intentionally omits `source`, so the input filename is not copied into the output. The current CTC call does not return word, sentence, confidence, or speaker metadata. The one segment spans the entire validated audio duration.
 
-The source value can reveal a filename or workflow detail. A future privacy option should allow it to be omitted or replaced before export.
+Exporters render TXT, SRT, VTT, or normalized UTF-8 JSON. They do not correct recognition errors, restore punctuation, or mark a transcript as human-reviewed. The output is written through a same-directory temporary file and an atomic link or replacement. New files use private temporary-file permissions. Existing output is preserved unless the user explicitly supplies `--force`.
 
-### 4. Exporters
-
-Exporters transform the canonical document locally into:
-
-- plain UTF-8 text for review and editing;
-- SRT or VTT captions with timestamps; or
-- normalized JSON for structured workflows.
-
-The output path is always supplied by the user. Export should be deterministic for the same validated input and options. Exporters do not correct recognition errors and must not imply that the transcript has been human-verified.
+If validation, dependency loading, model loading, inference, decoding, transcript validation, rendering, or writing fails, the command exits non-zero. It does not report success or intentionally leave a partial transcript at the requested output path.
 
 ## Network policy
 
-The core Python scaffold uses no network service and emits no telemetry. Planned transcription code must preserve that property at runtime.
+The runtime design prohibits:
 
-The design prohibits:
+- model download from `verify-model`, `transcribe`, or `export`;
+- automatic fallback from local inference to a hosted service;
+- upload of audio, transcript text, prompts, filenames, analytics, or crash reports;
+- arbitrary remote model code; and
+- remote authentication or licence checks required to transcribe.
 
-- automatic fallback from local inference to a hosted API;
-- automatic uploading of crash reports, analytics, media, prompts, or transcripts;
-- fetching a model when the user starts a transcription; and
-- remote licence checks or authentication required to transcribe.
+Package installation and the documented external `hf download` command may use the network. They must happen as explicit setup actions and should be performed with awareness that obtaining the software or model can itself be observable.
 
-If optional setup tooling can download a dependency or model, the action must be user-initiated, show its source and expected size, verify integrity where possible, and be separable from transcription. Tests should exercise the supported workflow with networking unavailable.
+## Current smoke-test evidence
+
+The exact pinned model passed the packaged size and SHA-256 verification. On an 8 GB Apple Silicon Mac, a public CC0 Common Voice v24 Uyghur sample of 6.552 seconds:
+
+- produced Arabic-script Uyghur output;
+- completed in 7.02 seconds;
+- reached a maximum resident set size of 1,452,851,200 bytes, approximately 1.35 GiB as reported by `/usr/bin/time`; and
+- reproduced the same output when run under a macOS `sandbox-exec` profile denying all network access.
+
+This is one functional smoke test, not an accuracy benchmark, portability result, security audit, or claim about the Common Voice 7 test score. The sample and generated output remain local and ignored; they must not be committed.
 
 ## Data lifecycle
 
 ```text
-Original media       remains at the user-selected path
-Temporary audio      created only when necessary; location and cleanup documented
-Transcript state     held in memory where practical or written only by explicit action
-Exports              written to a user-selected path
-Logs                  operational metadata only; no transcript or media content by default
-Telemetry             none
+Original WAV        remains at the user-selected path; never modified
+Decoded PCM         held in process memory for the run
+Model               remains in the user-selected local directory
+Transcript state    held in memory until an explicit output write
+Output              written to the user-selected path
+Temporary output    same directory; removed after success or handled failure
+Application logs    status/error text; no audio or transcript content by design
+Telemetry           none
 ```
 
-Process termination, operating-system caching, swap, backups, filesystem snapshots, and storage-device behavior can leave recoverable copies. The application cannot promise secure deletion. Users operating under elevated risk need device and operational-security practices outside this project's scope.
+The application does not delete the original audio, model, or output. Process memory, operating-system caches, swap, backups, filesystem snapshots, indexing, crash systems, and cloud-synced folders can create or retain additional copies. Idirak Safe cannot promise secure deletion.
 
-## Trust boundaries and dependencies
+## Trust boundaries
 
-- **Trusted for a run:** the user's device, operating system, installed Idirak Safe release, explicitly selected backend, local model, and output destination.
-- **Untrusted inputs:** media files, transcript JSON, filenames, embedded metadata, and third-party model packages.
-- **External dependencies:** Python, media decoders, ASR runtime, and model artifacts. Each introduces supply-chain and parser risk.
-- **Humans remain in the loop:** generated text requires review, especially for names, dates, negation, dialectal speech, and evidence used in consequential decisions.
+- **Trusted for a run:** the device, operating system, Python environment, installed Idirak Safe code, PyTorch/Transformers stack, verified model bytes, and chosen output directory.
+- **Untrusted input:** WAV contents and structure, transcript JSON supplied to `export`, filenames, model directory contents before verification, and all third-party artifacts before review.
+- **Explicit external setup:** Git, Python package indexes, and Hugging Face are outside the offline transcription boundary.
+- **Human review:** generated text remains unverified, especially for names, numbers, dates, negation, dialectal speech, and consequential statements.
 
-Release documentation should pin or bound supported versions, record licences and hashes where practical, and list unresolved risks. See `THREAT_MODEL.md` for the adversary and abuse analysis.
+See the [threat model](../THREAT_MODEL.md), [privacy document](../PRIVACY.md), [model card](MODEL_CARD.md), and [data card](DATA_CARD.md).
 
-## Planned verification
+## Remaining verification work
 
-The architecture should be backed by tests and evidence, including:
+- Independently reproduce or refute the publisher's Common Voice 7 WER and CER under the exact pinned revision and documented decoding.
+- Evaluate on licensed, non-sensitive speech beyond the upstream test setting, including diaspora varieties, noise, code-switching, names, dates, numbers, and negation.
+- Repeat performance and memory measurements on documented CPU-only reference systems.
+- Convert the one-off network-denied smoke test into automated, repeatable regression coverage and test additional supported environments.
+- Inspect temporary files, logs, process environment, caches, and crash behavior.
+- Complete dependency, model, data, and redistribution review.
+- Obtain an independent privacy/security review before considering any sensitive pilot.
 
-- unit tests for schema validation and every exporter;
-- integration tests that run the selected backend on non-sensitive fixtures;
-- network-denial tests proving the supported transcription path completes offline;
-- tests for malformed files, unsafe paths, interruptions, and resource exhaustion;
-- inspection of logs and temporary directories for content leakage;
-- reproducible accuracy evaluation with documented data provenance; and
-- an independent focused privacy/security review before recommending sensitive pilot use.
-
-Until these checks exist and their results are published, Idirak Safe remains pre-alpha and unsuitable for sensitive material.
+Until those checks are completed and published, Idirak Safe remains pre-alpha and unsuitable for sensitive material.
