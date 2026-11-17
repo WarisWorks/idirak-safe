@@ -149,14 +149,17 @@ def verify_model_directory(
 
     selected_manifest = manifest or load_manifest()
     try:
-        entries = tuple(directory.iterdir())
+        entries = sorted(directory.iterdir(), key=lambda entry: entry.name)
     except OSError as error:
         raise ModelVerificationError("model directory cannot be read") from error
 
+    # Reject every symbolic link first so the reported reason does not depend
+    # on the order in which the filesystem happens to list the directory.
+    if any(entry.is_symlink() for entry in entries):
+        raise ModelVerificationError("model directory contains a symbolic link")
+
     expected_names = {expected.path for expected in selected_manifest.files}
     for entry in entries:
-        if entry.is_symlink():
-            raise ModelVerificationError("model directory contains a symbolic link")
         if entry.name == ".cache":
             if not entry.is_dir():
                 raise ModelVerificationError(

@@ -11,7 +11,7 @@ Open an issue for a substantial change so its scope, privacy impact, and licensi
 1. Fork the repository and create a focused branch.
 2. Make the smallest coherent change.
 3. Add or update tests and documentation.
-4. Run the documented checks once they are available.
+4. Run `python -m unittest discover -s tests -v` and add an entry to [CHANGELOG.md](CHANGELOG.md) for a user-visible change.
 5. Explain behavior, privacy, security, model, data, and dependency changes in the pull request.
 
 The project does not yet promise a stable API or file format.

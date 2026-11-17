@@ -59,6 +59,45 @@ class ExporterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsupported export format"):
             export_transcript(self.transcript, "docx")
 
+    def _forged(self) -> Transcript:
+        return Transcript.from_mapping(
+            {
+                "segments": [
+                    {
+                        "start": 0,
+                        "end": 1,
+                        "text": "real\n\n2\n00:00:05,000 --> 00:00:09,000\nforged",
+                        "speaker": "A <b>",
+                    }
+                ]
+            }
+        )
+
+    def test_srt_text_cannot_forge_an_extra_cue(self) -> None:
+        rendered = export_srt(self._forged())
+        self.assertEqual(rendered.count("\n\n"), 0)
+        self.assertTrue(rendered.startswith("1\n00:00:00,000 --> 00:00:01,000\n"))
+
+    def test_vtt_escapes_markup_and_cue_arrows(self) -> None:
+        rendered = export_vtt(self._forged())
+        body = rendered.removeprefix("WEBVTT\n\n")
+        self.assertEqual(body.count("\n\n"), 0)
+        self.assertEqual(body.count("-->"), 1)
+        self.assertIn("A &lt;b&gt;: real", body)
+        self.assertIn("00:00:05,000 --&gt; 00:00:09,000", body)
+
+    def test_vtt_escapes_ampersand_first(self) -> None:
+        transcript = Transcript.from_mapping(
+            {"segments": [{"start": 0, "end": 1, "text": "a & b &lt; c"}]}
+        )
+        self.assertIn("a &amp; b &amp;lt; c", export_vtt(transcript))
+
+    def test_txt_keeps_one_segment_per_line(self) -> None:
+        self.assertEqual(
+            export_txt(self._forged()),
+            "A <b>: real 2 00:00:05,000 --> 00:00:09,000 forged\n",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,7 +18,8 @@ Version 0.2.0a0 provides:
 - hard-offline model loading with local files, Safetensors, and remote code disabled;
 - a single draft transcript segment covering the full input duration;
 - deterministic local export to TXT, SRT, VTT, or normalized JSON;
-- atomic output writes that preserve existing files unless `--force` is passed; and
+- subtitle exports that escape WebVTT markup and drop blank lines, so transcript text cannot forge an extra cue;
+- atomic output writes that preserve existing files unless `--force` is passed, including on filesystems without hard links; and
 - no telemetry, upload path, remote ASR API, or network fallback during transcription.
 
 The following are not implemented:
@@ -78,7 +79,10 @@ Check the installed status:
 
 ```bash
 idirak-safe doctor
+idirak-safe --version
 ```
+
+`doctor` prints the version, the pinned model revision, and whether the optional ASR packages can be found. It only looks the packages up; it does not import them, load a model, or show that transcription works.
 
 ## Explicit model setup
 
@@ -164,13 +168,15 @@ idirak-safe export examples/sample_transcript.json \
 
 This conversion validates and reformats existing text; it does not perform speech recognition.
 
+The transcript file must be UTF-8 and at most 8 MiB. Control characters are rejected everywhere except tabs and line breaks inside segment `text`. In TXT output each segment is joined onto one line; in SRT and VTT output blank lines inside a segment are dropped, and VTT output escapes `&`, `<`, and `>`. JSON output keeps the validated text unchanged.
+
 ## Run tests
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-The unit tests exercise input constraints, manifest verification, offline loader options, greedy CTC decoding, transcript validation, failure behavior, and exporters. They do not independently measure ASR accuracy or constitute a security audit.
+The unit tests exercise input constraints, manifest verification, offline loader options, greedy CTC decoding, transcript validation, failure behavior, exporters, and output writing. A network-policy test checks that the package source imports no networking or subprocess modules and that `doctor`, `verify-model`, and `export` complete with Python sockets disabled. That is an in-process guard, not an operating-system network sandbox, and it does not cover the optional PyTorch/Transformers stack. The tests do not independently measure ASR accuracy or constitute a security audit.
 
 ## Safe-use limitations
 

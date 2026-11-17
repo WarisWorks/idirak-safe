@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "idirak-safe"
-version = "0.2.0a0"
+dynamic = ["version"]
 description = "Pre-alpha local-first Uyghur transcription and export tools"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,6 +24,7 @@ classifiers = [
 Homepage = "https://github.com/WarisWorks/idirak-safe"
 Repository = "https://github.com/WarisWorks/idirak-safe"
 Issues = "https://github.com/WarisWorks/idirak-safe/issues"
+Changelog = "https://github.com/WarisWorks/idirak-safe/blob/main/CHANGELOG.md"
 
 [project.scripts]
 idirak-safe = "idirak_safe.cli:main"
@@ -38,6 +39,9 @@ asr = [
 
 [tool.setuptools]
 package-dir = { "" = "src" }
+
+[tool.setuptools.dynamic]
+version = { attr = "idirak_safe.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -12,6 +12,11 @@ import json
 import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+import unicodedata
+
+
+MAX_TRANSCRIPT_BYTES = 8 * 1024 * 1024
+_TEXT_LINE_BREAKS = frozenset("\n\r\t")
 
 
 class TranscriptValidationError(ValueError):
@@ -24,16 +29,35 @@ def _require_mapping(value: object, *, field: str) -> Mapping[str, Any]:
     return value
 
 
-def _require_text(value: object, *, field: str) -> str:
+def _require_text(value: object, *, field: str, multiline: bool = False) -> str:
+    """Require visible text without control or unpaired surrogate characters.
+
+    Control characters could forge extra subtitle cues, hide content from a
+    reviewer, or make an export unreadable, so they are rejected rather than
+    silently rewritten. Only segment text may contain tabs and line breaks.
+    """
+
     if not isinstance(value, str) or not value.strip():
         raise TranscriptValidationError(f"{field} must be a non-empty string")
+    for character in value:
+        category = unicodedata.category(character)
+        if category == "Cs" or (
+            category == "Cc"
+            and not (multiline and character in _TEXT_LINE_BREAKS)
+        ):
+            raise TranscriptValidationError(
+                f"{field} contains an unsupported control character"
+            )
     return value
 
 
 def _require_seconds(value: object, *, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise TranscriptValidationError(f"{field} must be a number of seconds")
-    seconds = float(value)
+    try:
+        seconds = float(value)
+    except OverflowError:
+        seconds = math.inf
     if not math.isfinite(seconds) or seconds < 0:
         raise TranscriptValidationError(
             f"{field} must be a finite, non-negative number of seconds"
@@ -49,6 +73,21 @@ class Segment:
     end: float
     text: str
     speaker: str | None = None
+
+    def __post_init__(self) -> None:
+        # Segments built directly in code, for example by an ASR backend, get
+        # the same checks as segments parsed from JSON.
+        start = _require_seconds(self.start, field="segment start")
+        end = _require_seconds(self.end, field="segment end")
+        if end < start:
+            raise TranscriptValidationError(
+                "segment end must be greater than or equal to start"
+            )
+        _require_text(self.text, field="segment text", multiline=True)
+        if self.speaker is not None:
+            _require_text(self.speaker, field="segment speaker")
+        object.__setattr__(self, "start", start)
+        object.__setattr__(self, "end", end)
 
     @classmethod
     def from_mapping(cls, value: object, *, index: int) -> "Segment":
@@ -67,7 +106,9 @@ class Segment:
                 f"segments[{index}].end must be greater than or equal to start"
             )
 
-        text = _require_text(item.get("text"), field=f"segments[{index}].text")
+        text = _require_text(
+            item.get("text"), field=f"segments[{index}].text", multiline=True
+        )
         speaker_value = item.get("speaker")
         speaker = None
         if speaker_value is not None:
@@ -94,6 +135,22 @@ class Transcript:
     segments: tuple[Segment, ...]
     language: str = "ug"
     source: str | None = None
+
+    def __post_init__(self) -> None:
+        segments = tuple(self.segments)
+        if not segments or not all(isinstance(item, Segment) for item in segments):
+            raise TranscriptValidationError(
+                "segments must be a non-empty sequence of segments"
+            )
+        for index in range(1, len(segments)):
+            if segments[index].start < segments[index - 1].start:
+                raise TranscriptValidationError(
+                    "segments must be ordered by non-decreasing start time"
+                )
+        _require_text(self.language, field="language")
+        if self.source is not None:
+            _require_text(self.source, field="source")
+        object.__setattr__(self, "segments", segments)
 
     @classmethod
     def from_mapping(cls, value: object) -> "Transcript":
@@ -123,11 +180,6 @@ class Transcript:
             Segment.from_mapping(segment, index=index)
             for index, segment in enumerate(segment_values)
         )
-        for index in range(1, len(segments)):
-            if segments[index].start < segments[index - 1].start:
-                raise TranscriptValidationError(
-                    "segments must be ordered by non-decreasing start time"
-                )
         return cls(segments=segments, language=language, source=source)
 
     @classmethod
@@ -138,13 +190,30 @@ class Transcript:
             raise TranscriptValidationError(
                 f"invalid transcript JSON at line {error.lineno}, column {error.colno}"
             ) from error
+        except RecursionError as error:
+            raise TranscriptValidationError(
+                "transcript JSON is nested too deeply"
+            ) from error
         return cls.from_mapping(value)
 
     @classmethod
     def load(cls, path: str | Path) -> "Transcript":
-        """Read and validate a UTF-8 transcript from a local file."""
+        """Read and validate a bounded UTF-8 transcript from a local file."""
 
-        return cls.from_json(Path(path).read_text(encoding="utf-8"))
+        with Path(path).open("rb") as handle:
+            data = handle.read(MAX_TRANSCRIPT_BYTES + 1)
+        if len(data) > MAX_TRANSCRIPT_BYTES:
+            raise TranscriptValidationError(
+                "transcript file exceeds the 8 MiB safety limit"
+            )
+        try:
+            # ``utf-8-sig`` also accepts the byte-order mark some editors add.
+            text = data.decode("utf-8-sig")
+        except UnicodeDecodeError as error:
+            raise TranscriptValidationError(
+                "transcript file is not valid UTF-8 text"
+            ) from error
+        return cls.from_json(text)
 
     def to_mapping(self) -> dict[str, object]:
         result: dict[str, object] = {
