@@ -8,16 +8,33 @@ from typing import Callable
 from .model import Segment, Transcript
 
 
-def _visible_text(segment: Segment) -> str:
-    if segment.speaker is None:
-        return segment.text
-    return f"{segment.speaker}: {segment.text}"
+def _visible_lines(segment: Segment) -> list[str]:
+    """Return the non-blank lines of a segment, prefixed with its speaker.
+
+    Blank lines are dropped because SRT and WebVTT use them to end a cue; text
+    containing one could otherwise be read as an additional, forged cue.
+    """
+
+    lines = [line.strip() for line in segment.text.splitlines()]
+    lines = [line for line in lines if line]
+    if segment.speaker is not None:
+        lines[0] = f"{segment.speaker.strip()}: {lines[0]}"
+    return lines
+
+
+def _escape_vtt(line: str) -> str:
+    """Escape WebVTT markup so text is shown literally, including ``-->``."""
+
+    return line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def export_txt(transcript: Transcript) -> str:
     """Render one transcript segment per line."""
 
-    return "\n".join(_visible_text(segment) for segment in transcript.segments) + "\n"
+    return (
+        "\n".join(" ".join(_visible_lines(segment)) for segment in transcript.segments)
+        + "\n"
+    )
 
 
 def _timestamp(seconds: float, *, decimal_separator: str) -> str:
@@ -38,7 +55,8 @@ def export_srt(transcript: Transcript) -> str:
     for index, segment in enumerate(transcript.segments, start=1):
         start = _timestamp(segment.start, decimal_separator=",")
         end = _timestamp(segment.end, decimal_separator=",")
-        cues.append(f"{index}\n{start} --> {end}\n{_visible_text(segment)}")
+        text = "\n".join(_visible_lines(segment))
+        cues.append(f"{index}\n{start} --> {end}\n{text}")
     return "\n\n".join(cues) + "\n"
 
 
@@ -49,7 +67,8 @@ def export_vtt(transcript: Transcript) -> str:
     for segment in transcript.segments:
         start = _timestamp(segment.start, decimal_separator=".")
         end = _timestamp(segment.end, decimal_separator=".")
-        cues.append(f"{start} --> {end}\n{_visible_text(segment)}")
+        text = "\n".join(_escape_vtt(line) for line in _visible_lines(segment))
+        cues.append(f"{start} --> {end}\n{text}")
     return "WEBVTT\n\n" + "\n\n".join(cues) + "\n"
 
 

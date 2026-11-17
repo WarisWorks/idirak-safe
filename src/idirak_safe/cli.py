@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import argparse
+from importlib import util as importlib_util
 from pathlib import Path
 import sys
 from typing import Sequence
 
+from . import __version__
 from .asr import ASRError, create_backend
 from .audio import AudioValidationError
 from .exporters import EXPORTERS, export_transcript
 from .model import Transcript, TranscriptValidationError
-from .model_files import ModelVerificationError, verify_model_directory
+from .model_files import ModelVerificationError, load_manifest, verify_model_directory
 from .storage import atomic_write_text
 
 
@@ -22,6 +24,9 @@ def build_parser() -> argparse.ArgumentParser:
             "Pre-alpha local transcript tools with an optional experimental, "
             "offline-only Uyghur ASR backend."
         ),
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"idirak-safe {__version__}"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -80,10 +85,37 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+_ASR_MODULES = ("numpy", "safetensors", "torch", "transformers")
+
+
+def _missing_asr_modules() -> list[str]:
+    """Look up optional ASR packages without importing or running them."""
+
+    missing: list[str] = []
+    for name in _ASR_MODULES:
+        try:
+            found = importlib_util.find_spec(name) is not None
+        except (ImportError, ValueError):
+            found = False
+        if not found:
+            missing.append(name)
+    return missing
+
+
 def _doctor() -> int:
-    print("Idirak Safe 0.2.0a0 (pre-alpha)")
+    manifest = load_manifest()
+    missing = _missing_asr_modules()
+    print(f"Idirak Safe {__version__} (pre-alpha)")
     print("Implemented: local transcript validation and TXT/SRT/VTT/JSON export")
     print("Experimental: verified local Wav2Vec2 ASR for short strict PCM WAV input")
+    print(f"Pinned model: {manifest.model_id} at revision {manifest.revision}")
+    if missing:
+        print(
+            f"ASR dependencies: not found: {', '.join(missing)} "
+            "(install with: pip install -e '.[asr]')"
+        )
+    else:
+        print("ASR dependencies: found (not loaded or tested by this check)")
     print("Runtime policy: offline-only; no upload, model download, or telemetry path")
     print("Sensitive-use status: NOT READY; use only non-sensitive test audio")
     return 0
@@ -164,6 +196,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     ) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        print("error: interrupted", file=sys.stderr)
+        return 130
 
     parser.error("unknown command")
     return 2

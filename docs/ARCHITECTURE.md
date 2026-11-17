@@ -50,7 +50,9 @@ The weight file is exactly 1,261,963,232 bytes with SHA-256 `aa923e217495329501f
 
 The verifier requires every listed file to be a regular file with the expected byte size and digest. The model directory itself may not be a symbolic link; top-level symbolic links and files with executable, library, Python, pickle, PyTorch-pickle, or similar unsafe suffixes are rejected.
 
-Verification proves only that the required local bytes match the packaged manifest. It does not prove accuracy, absence of malicious learned behavior, ethical data collection, licence sufficiency, or safety. Extra non-symlink directories and file types not on the unsafe list are not a complete sandbox and remain part of the local trust boundary.
+Any other top-level entry that is not named in the manifest is rejected. The one exception is a `.cache` directory, which `hf download` creates; it is permitted and its contents are not inspected, so it remains part of the local trust boundary.
+
+Verification proves only that the required local bytes match the packaged manifest. It does not prove accuracy, absence of malicious learned behavior, ethical data collection, licence sufficiency, or safety. The files are verified and then loaded by path, so a local process that can modify the model directory between those steps is outside what verification covers.
 
 ### Offline transcription workflow
 
@@ -169,7 +171,11 @@ The ASR adapter returns one `Transcript` object in memory:
 
 The generated transcript intentionally omits `source`, so the input filename is not copied into the output. The current CTC call does not return word, sentence, confidence, or speaker metadata. The one segment spans the entire validated audio duration.
 
-Exporters render TXT, SRT, VTT, or normalized UTF-8 JSON. They do not correct recognition errors, restore punctuation, or mark a transcript as human-reviewed. The output is written through a same-directory temporary file and an atomic link or replacement. New files use private temporary-file permissions. Existing output is preserved unless the user explicitly supplies `--force`.
+The same validation runs whether a transcript is parsed from JSON or constructed in code by a backend. Timestamps must be finite and non-negative, segments must be ordered, and text may not contain control characters other than tabs and line breaks inside segment text. Transcript JSON read by `export` must be UTF-8 and at most 8 MiB.
+
+Exporters render TXT, SRT, VTT, or normalized UTF-8 JSON. They do not correct recognition errors, restore punctuation, or mark a transcript as human-reviewed. TXT joins each segment onto one line. SRT and VTT drop blank lines inside a segment, because a blank line ends a cue and could otherwise let transcript text pose as an additional cue; VTT also escapes `&`, `<`, and `>`.
+
+The output is written through a same-directory temporary file and an atomic link or replacement. Where the filesystem has no hard links, such as FAT or exFAT removable media, the writer instead reserves the output name with an exclusive create and then replaces that empty reservation; an interruption at that moment can leave an empty file but not a partial transcript. New files use private temporary-file permissions. Existing output is preserved unless the user explicitly supplies `--force`.
 
 If validation, dependency loading, model loading, inference, decoding, transcript validation, rendering, or writing fails, the command exits non-zero. It does not report success or intentionally leave a partial transcript at the requested output path.
 
@@ -225,7 +231,7 @@ See the [threat model](../THREAT_MODEL.md), [privacy document](../PRIVACY.md), [
 - Independently reproduce or refute the publisher's Common Voice 7 WER and CER under the exact pinned revision and documented decoding.
 - Evaluate on licensed, non-sensitive speech beyond the upstream test setting, including diaspora varieties, noise, code-switching, names, dates, numbers, and negation.
 - Repeat performance and memory measurements on documented CPU-only reference systems.
-- Convert the one-off network-denied smoke test into automated, repeatable regression coverage and test additional supported environments.
+- Convert the one-off network-denied smoke test into automated, repeatable regression coverage and test additional supported environments. The current automated guard only checks package imports and runs the non-ASR commands with Python sockets disabled.
 - Inspect temporary files, logs, process environment, caches, and crash behavior.
 - Complete dependency, model, data, and redistribution review.
 - Obtain an independent privacy/security review before considering any sensitive pilot.
